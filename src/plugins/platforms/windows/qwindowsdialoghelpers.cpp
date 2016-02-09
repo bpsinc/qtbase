@@ -3,24 +3,19 @@
 ** Copyright (C) 2015 The Qt Company Ltd.
 ** Contact: http://www.qt.io/licensing/
 **
+** Copyright (C) 2015 BPS Co., Ltd.
+**
 ** This file is part of the plugins of the Qt Toolkit.
 **
 ** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
+** This file may be used under the terms of the GNU Lesser General Public
+** License version 2.1 or version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPLv21 and LICENSE.LGPLv3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU Lesser General Public License requirements
+** will be met: https://www.gnu.org/licenses/lgpl.html and
 ** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
 **
 ** As a special exception, The Qt Company gives you certain additional
@@ -455,13 +450,18 @@ void eatMouseMove()
     \ingroup qt-lighthouse-win
 */
 
-class QWindowsNativeDialogBase : public QObject
+class QWindowsNativeDialogBase : public QThread
 {
     Q_OBJECT
 public:
+    typedef QSharedPointer<QWindowsNativeDialogBase> QWindowsNativeDialogBasePtr;
+
     virtual void setWindowTitle(const QString &title) = 0;
     bool executed() const { return m_executed; }
-    void exec(HWND owner = 0) { doExec(owner); m_executed = true; }
+
+    void initThread(HWND owner) { m_owner = owner; }
+    virtual void run();
+    virtual ~QWindowsNativeDialogBase() { wait(); }
 
 signals:
     void accepted();
@@ -477,6 +477,7 @@ private:
     virtual void doExec(HWND owner = 0) = 0;
 
     bool m_executed;
+    HWND m_owner;
 };
 
 /*!
@@ -529,34 +530,11 @@ QWindowsNativeDialogBase *QWindowsDialogHelperBase<BaseClass>::ensureNativeDialo
     return m_nativeDialog.data();
 }
 
-/*!
-    \class QWindowsDialogThread
-    \brief Run a non-modal native dialog in a separate thread.
-
-    \sa QWindowsDialogHelperBase
-    \internal
-    \ingroup qt-lighthouse-win
-*/
-
-class QWindowsDialogThread : public QThread
-{
-public:
-    typedef QSharedPointer<QWindowsNativeDialogBase> QWindowsNativeDialogBasePtr;
-
-    explicit QWindowsDialogThread(const QWindowsNativeDialogBasePtr &d, HWND owner)
-        : m_dialog(d), m_owner(owner) {}
-    void run();
-
-private:
-    const QWindowsNativeDialogBasePtr m_dialog;
-    const HWND m_owner;
-};
-
-void QWindowsDialogThread::run()
+void QWindowsNativeDialogBase::run()
 {
     qCDebug(lcQpaDialogs) << '>' << __FUNCTION__;
-    m_dialog->exec(m_owner);
-    deleteLater();
+    doExec(m_owner);
+    m_executed = true;
     qCDebug(lcQpaDialogs) << '<' << __FUNCTION__;
 }
 
@@ -596,8 +574,8 @@ template <class BaseClass>
 void QWindowsDialogHelperBase<BaseClass>::startDialogThread()
 {
     Q_ASSERT(!m_nativeDialog.isNull());
-    QWindowsDialogThread *thread = new QWindowsDialogThread(m_nativeDialog, m_ownerWindow);
-    thread->start();
+    m_nativeDialog->initThread(m_ownerWindow);
+    m_nativeDialog->start();
     stopTimer();
 }
 
@@ -662,7 +640,8 @@ void QWindowsDialogHelperBase<BaseClass>::exec()
     qCDebug(lcQpaDialogs) << __FUNCTION__;
     stopTimer();
     if (QWindowsNativeDialogBase *nd = nativeDialog()) {
-         nd->exec(m_ownerWindow);
+         nd->initThread(m_ownerWindow);
+         nd->run();
          m_nativeDialog.clear();
     }
 }
