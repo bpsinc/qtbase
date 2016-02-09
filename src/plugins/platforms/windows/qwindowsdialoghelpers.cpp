@@ -499,28 +499,8 @@ template <class BaseClass>
 QWindowsDialogHelperBase<BaseClass>::QWindowsDialogHelperBase() :
     m_nativeDialog(0),
     m_ownerWindow(0),
-    m_timerId(0),
-    m_thread(0)
+    m_timerId(0)
 {
-}
-
-template <class BaseClass>
-void QWindowsDialogHelperBase<BaseClass>::cleanupThread()
-{
-    if (m_thread) { // Thread may be running if the dialog failed to close.
-        if (m_thread->isRunning())
-            m_thread->wait(500);
-        if (m_thread->isRunning()) {
-            m_thread->terminate();
-            m_thread->wait(300);
-            if (m_thread->isRunning())
-                qCCritical(lcQpaDialogs) <<__FUNCTION__ << "Failed to terminate thread.";
-            else
-                qCWarning(lcQpaDialogs) << __FUNCTION__ << "Thread terminated.";
-        }
-        delete m_thread;
-        m_thread = 0;
-    }
 }
 
 template <class BaseClass>
@@ -576,6 +556,7 @@ void QWindowsDialogThread::run()
 {
     qCDebug(lcQpaDialogs) << '>' << __FUNCTION__;
     m_dialog->exec(m_owner);
+    deleteLater();
     qCDebug(lcQpaDialogs) << '<' << __FUNCTION__;
 }
 
@@ -603,7 +584,6 @@ bool QWindowsDialogHelperBase<BaseClass>::show(Qt::WindowFlags,
     // a subsequent call to exec() may follow. So, start an idle timer
     // which will start the dialog thread. If exec() is then called, the
     // timer is stopped and dialog->exec() is called directly.
-    cleanupThread();
     if (modal) {
         m_timerId = this->startTimer(0);
     } else {
@@ -616,9 +596,8 @@ template <class BaseClass>
 void QWindowsDialogHelperBase<BaseClass>::startDialogThread()
 {
     Q_ASSERT(!m_nativeDialog.isNull());
-    Q_ASSERT(!m_thread);
-    m_thread = new QWindowsDialogThread(m_nativeDialog, m_ownerWindow);
-    m_thread->start();
+    QWindowsDialogThread *thread = new QWindowsDialogThread(m_nativeDialog, m_ownerWindow);
+    thread->start();
     stopTimer();
 }
 
